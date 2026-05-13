@@ -1,0 +1,292 @@
+# ============================================================
+# OptiWallet — Docker Compose Configuration
+# ============================================================
+# Tüm servisleri tek komutla ayağa kaldırır:
+#   docker-compose up -d
+# Servisleri durdurmak için:
+#   docker-compose down
+# Logları izlemek için:
+#   docker-compose logs -f
+# ============================================================
+
+services:
+  # ============================================================
+  # PostgreSQL — Ana Veritabanı
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: optiwallet-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-optiwallet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-optiwallet_dev_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-optiwallet}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-optiwallet} -d ${POSTGRES_DB:-optiwallet}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - optiwallet-network
+
+  # ============================================================
+  # Redis — Cache, Queue & Session Store
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: optiwallet-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - optiwallet-network
+
+  # ============================================================
+  # MinIO — S3-uyumlu Dosya Depolama (local development)
+  # ============================================================
+  minio:
+    image: minio/minio:latest
+    container_name: optiwallet-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-optiwallet}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-optiwallet_dev_2026}
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Web Console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - optiwallet-network
+
+  # ============================================================
+  # MinIO Setup — Bucket'ları otomatik oluştur
+  # ============================================================
+  minio-setup:
+    image: minio/mc:latest
+    container_name: optiwallet-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-optiwallet}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-optiwallet_dev_2026}
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      /usr/bin/mc alias set local http://minio:9000 $${S3_ACCESS_KEY} $${S3_SECRET_KEY};
+      /usr/bin/mc mb --ignore-existing local/optiwallet-uploads;
+      /usr/bin/mc mb --ignore-existing local/optiwallet-avatars;
+      /usr/bin/mc mb --ignore-existing local/optiwallet-products;
+      /usr/bin/mc anonymous set download local/optiwallet-avatars;
+      /usr/bin/mc anonymous set download local/optiwallet-products;
+      echo 'MinIO buckets oluşturuldu.';
+      exit 0;
+      "
+    networks:
+      - optiwallet-network
+
+  # ============================================================
+  # pgAdmin — PostgreSQL Web Arayüzü (geliştirme için)
+  # ============================================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: optiwallet-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@optiwallet.app}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-changeme}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - optiwallet-network
+
+  # ============================================================
+  # Backend API — FastAPI + 7 AI Ajanı
+  # ============================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: optiwallet-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-optiwallet}:${POSTGRES_PASSWORD:-optiwallet_dev_2026}@postgres:5432/${POSTGRES_DB:-optiwallet}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - optiwallet-network
+
+  # ============================================================
+  # Celery Worker — Background Jobs (bildirimler, vs.)
+  # ============================================================
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: optiwallet-celery
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-optiwallet}:${POSTGRES_PASSWORD:-optiwallet_dev_2026}@postgres:5432/${POSTGRES_DB:-optiwallet}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./backend/app:/app/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    networks:
+      - optiwallet-network
+
+  # ============================================================
+  # Celery Beat — Scheduled Jobs (her gece bütçe kontrolü, vs.)
+  # ============================================================
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: optiwallet-celery-beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-optiwallet}:${POSTGRES_PASSWORD:-optiwallet_dev_2026}@postgres:5432/${POSTGRES_DB:-optiwallet}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./backend/app:/app/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.worker.celery_app beat --loglevel=info
+    networks:
+      - optiwallet-network
+
+  # ============================================================
+  # Mock Bank API — 8 Banka Simülatörü
+  # ============================================================
+  mock-bank-api:
+    build:
+      context: ./mock-bank-api
+      dockerfile: Dockerfile
+    container_name: optiwallet-mock-bank
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-optiwallet}:${POSTGRES_PASSWORD:-optiwallet_dev_2026}@postgres:5432/mock_bank
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./mock-bank-api/app:/app/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+    networks:
+      - optiwallet-network
+
+  # ============================================================
+  # Frontend — Next.js 14 + PWA
+  # ============================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: optiwallet-frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+      - frontend-next-cache:/app/.next
+    depends_on:
+      - backend
+    command: npm run dev
+    networks:
+      - optiwallet-network
+
+# ============================================================
+# Networks
+# ============================================================
+networks:
+  optiwallet-network:
+    driver: bridge
+    name: optiwallet-network
+
+# ============================================================
+# Volumes (kalıcı veri)
+# ============================================================
+volumes:
+  postgres-data:
+    name: optiwallet-postgres-data
+  redis-data:
+    name: optiwallet-redis-data
+  minio-data:
+    name: optiwallet-minio-data
+  pgadmin-data:
+    name: optiwallet-pgadmin-data
+  frontend-node-modules:
+    name: optiwallet-frontend-node-modules
+  frontend-next-cache:
+    name: optiwallet-frontend-next-cache

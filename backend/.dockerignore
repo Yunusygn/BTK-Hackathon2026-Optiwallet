@@ -1,0 +1,64 @@
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+build
+dist
+
+# Virtual environments
+venv
+.venv
+env
+ENV
+
+# Testing
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov
+.tox
+.nox
+coverage.xml
+
+# Type checkers
+.mypy_cache
+.dmypy.json
+.pyre
+.pytype
+.ruff_cache
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Git
+.git
+.gitignore
+.gitattributes
+.github
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+logs
+
+# Documentation
+README.md
+*.md

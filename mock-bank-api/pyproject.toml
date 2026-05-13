@@ -1,0 +1,54 @@
+# ============================================================
+# Mock Bank API — Python Project Configuration
+# ============================================================
+
+[project]
+name = "mock-bank-api"
+version = "0.1.0"
+description = "Mock banking API simulator — OptiWallet"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Yunus Emre Yeğin", email = "yunus@optiwallet.app" }
+]
+
+dependencies = [
+    # Web Framework
+    "fastapi[all]>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+
+    # Validation
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+
+    # Database
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+
+    # Security
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+
+    # Utilities
+    "python-dotenv>=1.0.1",
+    "faker>=33.0.0",
+    "structlog>=24.4.0",
+    "orjson>=3.10.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "N", "S"]
+ignore = ["E501", "B008", "S101"]

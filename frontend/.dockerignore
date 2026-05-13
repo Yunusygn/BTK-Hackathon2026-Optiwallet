@@ -1,0 +1,63 @@
+# ============================================================
+# Frontend .dockerignore
+# ============================================================
+# Container'a kopyalanmayacak dosyalar
+# ============================================================
+
+# ----- Dependencies -----
+node_modules
+.pnp
+.pnp.js
+
+# ----- Build artifacts -----
+.next
+out
+build
+dist
+*.tsbuildinfo
+
+# ----- Testing -----
+coverage
+.nyc_output
+.vitest
+
+# ----- Logs -----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ----- Environment files (env via docker-compose) -----
+.env*.local
+.env.development
+.env.production
+
+# ----- IDE -----
+.vscode
+.idea
+*.swp
+*.swo
+
+# ----- OS -----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ----- Git -----
+.git
+.gitignore
+.gitattributes
+.github
+
+# ----- Docker -----
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# ----- Documentation -----
+README.md
+LICENSE
+*.md
+
+# ----- Deployment -----
+.vercel
