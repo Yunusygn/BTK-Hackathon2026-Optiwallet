@@ -38,7 +38,9 @@ class Settings(BaseSettings):
 
     # ===== Gemini AI =====
     GEMINI_API_KEY: str = Field(..., description="Google Gemini API key")
-    GEMINI_MODEL: str = "gemini-2.0-flash-exp"
+    GEMINI_MODEL_FAST: str = "gemini-2.5-flash"
+    GEMINI_MODEL_PRO: str = "gemini-2.5-pro"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
 
     # ===== Database (PostgreSQL) =====
     POSTGRES_USER: str = "optiwallet"
