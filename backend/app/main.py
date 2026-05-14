@@ -177,11 +177,10 @@ def _setup_routes(app: FastAPI) -> None:
             "gemini": True,  # TODO: implement real check
         }
 
-    # TODO: Mount API routers here
-    # from app.api.routes import auth, chat, profile
-    # app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
-    # app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
-    # app.include_router(profile.router, prefix="/api/v1/profile", tags=["Profile"])
+    # ===== Mount API v1 Router =====
+    from app.api.v1.router import api_router
+
+    app.include_router(api_router, prefix="/api/v1")
 
 
 def _setup_exception_handlers(app: FastAPI) -> None:
