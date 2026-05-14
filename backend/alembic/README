@@ -1,0 +1,13 @@
+Generic single-database configuration with an async dbapi.
+
+Bu klasör Alembic database migration'larını içerir.
+
+Komutlar:
+  alembic revision --autogenerate -m "açıklama"  → Yeni migration oluştur
+  alembic upgrade head                            → En son migration'a güncelle
+  alembic downgrade -1                            → Bir migration geri al
+  alembic history                                 → Tüm migration geçmişi
+  alembic current                                 → Şu anki migration
+
+Docker içinde çalıştırma:
+  docker-compose exec backend alembic <komut>
