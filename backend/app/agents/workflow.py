@@ -1,33 +1,26 @@
 """
-LangGraph Workflow — Recommendation Pipeline.
+LangGraph Workflow — Conversational Recommendation Pipeline.
 
-7-Agent state machine (şu an: 1 agent — incremental development).
+ARCHITECTURE:
+ConsultantAgent giriş kapısıdır. Confidence'a göre 2 yol:
+- ready=True → ResearchAgent → (gelecekte: Market, Finance, Strategy)
+- ready=False → Kullanıcıya soru gösterip dur (clarification döngüsü)
 
-Mimari Akış (final hedef):
-                    [START]
-                       ↓
-              [Needs Analysis]
-                       ↓
-           ┌───────────┼───────────┐
-           ↓           ↓           ↓
-        [Research]  [Market]   [Finance]
-           ↓           ↓           ↓
-           └───────────┼───────────┘
-                       ↓
-                  [Strategy]
-                       ↓
-                  [Verifier]
-                       ↓
-                  [Auditor]
-                       ↓
-              ❓ approved?
-            /              \\
-           No                Yes
-            ↓                 ↓
-       [Strategy]          [END]
+CURRENT NODES:
+- consultant: Entry gate (niyet anla, eksikse sor)
+- research: Multi-criteria decision analysis (6 boyut)
 
-Şu an Aşama 1: [START] → [NeedsAnalysis] → [END]
-Diğer ajanlar sonraki günlerde eklenecek (incremental).
+NEXT NODES (gelecek):
+- market: Fiyat + satıcı + kampanya
+- finance: Cash flow + taksit + coaching
+- tco: 5 yıllık toplam maliyet
+- strategy: Sentez + final öneri
+- auditor: Reflexion kontrol
+
+PHILOSOPHY:
+- Conversation-first (clarification olmadan pipeline başlamaz)
+- Strict Budget Respect (bütçesiz öneri yok)
+- Patron + Asistan + CEO hiyerarşi
 """
 
 from __future__ import annotations
@@ -37,7 +30,8 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
-from app.agents.needs_analysis import NeedsAnalysisAgent
+from app.agents.consultant import ConsultantAgent
+from app.agents.research import ResearchAgent
 from app.agents.state import AgentState, WorkflowStatus
 from app.core.logging import get_logger
 
@@ -47,10 +41,72 @@ logger = get_logger(__name__)
 # ============================================================
 # Node Wrappers
 # ============================================================
-async def needs_analysis_node(state: AgentState) -> AgentState:
-    """LangGraph node wrapper for NeedsAnalysisAgent."""
-    agent = NeedsAnalysisAgent()
+async def consultant_node(state: AgentState) -> AgentState:
+    """
+    ConsultantAgent node wrapper.
+
+    Kullanıcının giriş kapısı. Niyeti anla, eksikse soru sor.
+
+    Output:
+        consultant_output dict ile:
+        - ready_for_pipeline: bool
+        - clarification_questions: list (eksikse)
+        - parsed_needs: NeedsAnalysisOutput (varsa)
+        - interaction_mode: ready/clarification/educational/category_selection
+    """
+    agent = ConsultantAgent()
+    new_state = await agent.run(state)
+
+    # ConsultantAgent çıktısını sonraki agent'ların kullanabileceği
+    # formata da kopyala (parsed_needs varsa needs_analysis'e map et)
+    consultant_output = new_state.get("consultant_output")
+    if consultant_output and consultant_output.get("parsed_needs"):
+        new_state["needs_analysis"] = consultant_output["parsed_needs"]
+
+    return new_state
+
+
+async def research_node(state: AgentState) -> AgentState:
+    """ResearchAgent node wrapper - 6-dimensional MCDA."""
+    agent = ResearchAgent()
     return await agent.run(state)
+
+
+# ============================================================
+# Conditional Router
+# ============================================================
+def route_after_consultant(state: AgentState) -> str:
+    """
+    ConsultantAgent sonrası akışı belirler.
+
+    Kararlar:
+    - ready_for_pipeline=True → research (devam et)
+    - ready_for_pipeline=False → END (kullanıcı cevap verene kadar bekle)
+
+    Returns:
+        "research" veya "end"
+    """
+    consultant_output = state.get("consultant_output")
+
+    if not consultant_output:
+        logger.warning("route_consultant_output_missing")
+        return "end"
+
+    ready = consultant_output.get("ready_for_pipeline", False)
+    mode = consultant_output.get("interaction_mode", "unknown")
+
+    logger.info(
+        "route_after_consultant",
+        ready=ready,
+        mode=mode,
+    )
+
+    if ready:
+        return "research"
+    else:
+        # Clarification, educational, veya category_selection mode
+        # Kullanıcıya cevap göster, sonraki turn'ü bekle
+        return "end"
 
 
 # ============================================================
@@ -58,40 +114,49 @@ async def needs_analysis_node(state: AgentState) -> AgentState:
 # ============================================================
 def build_workflow() -> Any:
     """
-    Recommendation workflow'unu LangGraph ile kur.
+    Conversational Recommendation Pipeline.
 
-    Şu an basit: tek node. Sonradan diğer agent'lar eklenecek.
+    Şu anki node'lar:
+    - consultant: Entry gate
+    - research: Multi-criteria decision analysis
+
+    Eklenecek (gelecek günler):
+    - market, finance, tco, strategy, auditor
 
     Returns:
         Compiled LangGraph application.
     """
-    # State graph oluştur
     graph = StateGraph(AgentState)
 
-    # Node'ları ekle
-    graph.add_node("needs_analysis", needs_analysis_node)
-    # Sonradan eklenecek:
-    # graph.add_node("research", research_node)
-    # graph.add_node("market", market_node)
-    # graph.add_node("finance", finance_node)
-    # graph.add_node("strategy", strategy_node)
-    # graph.add_node("verifier", verifier_node)
-    # graph.add_node("auditor", auditor_node)
+    # ===== Node'ları ekle =====
+    graph.add_node("consultant", consultant_node)
+    graph.add_node("research", research_node)
 
-    # Edges (akış)
-    graph.add_edge(START, "needs_analysis")
-    graph.add_edge("needs_analysis", END)
-    # Sonradan:
-    # graph.add_edge("needs_analysis", "research")
-    # ... vs.
+    # ===== Edges =====
+    # Start → Consultant
+    graph.add_edge(START, "consultant")
+
+    # Consultant → (conditional) → Research veya END
+    graph.add_conditional_edges(
+        "consultant",
+        route_after_consultant,
+        {
+            "research": "research",
+            "end": END,
+        },
+    )
+
+    # Research → END (şimdilik; sonra market, finance, vs.)
+    graph.add_edge("research", END)
 
     # Compile
     compiled = graph.compile()
 
     logger.info(
         "workflow_compiled",
-        node_count=1,
-        nodes=["needs_analysis"],
+        node_count=2,
+        nodes=["consultant", "research"],
+        conditional_routing=True,
     )
 
     return compiled
@@ -108,7 +173,6 @@ def get_workflow() -> Any:
     Singleton workflow instance.
 
     İlk çağrıda compile edilir, sonra cache'lenir.
-    Her request için yeniden compile etmek pahalı olur.
     """
     global _workflow_instance
 
@@ -147,12 +211,16 @@ def create_initial_state(
         "user_id": user_id,
         "conversation_id": conversation_id,
         "session_id": session_id,
+
         # Input
         "user_query": user_query,
         "user_context": user_context or {},
+
         # Messages
         "messages": [],
+
         # Agent outputs (None başlangıçta)
+        "consultant_output": None,
         "needs_analysis": None,
         "market_intel": None,
         "research_intel": None,
@@ -160,18 +228,22 @@ def create_initial_state(
         "recommendation": None,
         "verification": None,
         "audit": None,
+
         # Workflow control
         "workflow_status": WorkflowStatus.INITIALIZED,
         "current_agent": None,
         "agent_history": [],
+
         # Reflexion
         "auditor_attempts": 0,
         "max_auditor_attempts": 3,
+
         # Metadata
         "started_at": datetime.now(timezone.utc),
         "completed_at": None,
         "total_tokens_used": 0,
         "total_duration_ms": 0,
+
         # Errors
         "errors": [],
     }

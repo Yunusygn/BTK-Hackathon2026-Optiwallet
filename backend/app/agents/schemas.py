@@ -404,3 +404,141 @@ class ConsultantOutput(BaseModel):
         le=1.0,
         description="Anlama güveni (kendi iş kurallarımızla hesaplandı)",
     )
+
+# ============================================================
+# ResearchAgent v3 — Tiered Evaluation Schemas
+# ============================================================
+
+class AlternativeEvaluation(BaseModel):
+    """
+    Tier 2 - Özet değerlendirme (5-8. sıradaki markalar).
+
+    Top 4'e giremedi ama bütçede ve kriterlere uyuyor.
+    Kullanıcıya alternatif olarak sunulur.
+    """
+
+    name: str = Field(..., max_length=200, description="Marka veya model adı")
+    brand: str | None = Field(None, max_length=100)
+
+    overall_score: float = Field(
+        ...,
+        ge=0.0,
+        le=10.0,
+        description="Tahmini genel skor (0-10)",
+    )
+
+    one_line_summary: str = Field(
+        ...,
+        max_length=300,
+        description="Tek cümlelik özet ('Servis güçlü ama tech orta')",
+    )
+
+    why_not_top: str = Field(
+        ...,
+        max_length=300,
+        description="Neden top 4'te değil ('Görüntü kalitesi düşük')",
+    )
+
+    estimated_price_try: float | None = Field(
+        None,
+        ge=0,
+        description="Tahmini fiyat TRY",
+    )
+    is_within_budget: bool | None = Field(
+        None,
+        description="Bütçe dahilinde mi",
+    )
+
+
+class BrandMention(BaseModel):
+    """
+    Tier 3 - Sadece bahsetme (9+ markalar).
+
+    Pazarda var ama önerilen liste dışında.
+    Şeffaflık için sadece adı + tek kelime durumu.
+    """
+
+    name: str = Field(..., max_length=200)
+    status: str = Field(
+        ...,
+        max_length=50,
+        description="premium | budget | out_of_budget | niche | unavailable",
+    )
+    note: str = Field(
+        ...,
+        max_length=500,
+        description="Kısa not ('Bütçe üstü 32K' veya 'Çok yeni, az veri')",
+    )
+
+
+class ResearchOutputV3(BaseModel):
+    """
+    ResearchAgent v3 — Hibrit Smart Filter + Tournament çıktısı.
+
+    3 katmanlı çıktı:
+    - top_evaluations: 4 ana öneri (tam 6 boyut)
+    - alternative_evaluations: 4 alternatif (özet)
+    - market_overview: 7+ marka (sadece isim)
+
+    Total ürün gösterimi: 15+ marka (şeffaflık)
+    """
+
+    # Genel özet
+    consensus_summary: str = Field(
+        ...,
+        max_length=2500,
+        description="Türkçe pazar özeti",
+    )
+
+    # 🥇 TIER 1: Top 4 - Tam 6 boyut MCDA
+    top_evaluations: list[MultiCriteriaEvaluation] = Field(
+        default_factory=list,
+        description="Top 4 marka - tam 6 boyut analizi",
+        max_length=4,
+    )
+
+    # 🥈 TIER 2: 5-8 - Alternatifler (özet)
+    alternative_evaluations: list[AlternativeEvaluation] = Field(
+        default_factory=list,
+        description="Alternatifler (5-8. sıra) - özet bilgi",
+        max_length=6,
+    )
+
+    # 🥉 TIER 3: 9+ - Pazardaki diğer markalar
+    market_overview: list[BrandMention] = Field(
+        default_factory=list,
+        description="Pazardaki diğer markalar (sadece isim)",
+        max_length=15,
+    )
+
+    # Forum & insights
+    forum_quotes: list[dict] = Field(
+        default_factory=list,
+        description="Forum alıntıları",
+        max_length=10,
+    )
+
+    category_insights: list[str] = Field(
+        default_factory=list,
+        description="Kategori içgörüleri",
+        max_length=10,
+    )
+
+    sources: list[SourceCitation] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+
+    # Strict Budget Constraint feedback
+    total_brands_scanned: int = Field(
+        0,
+        ge=0,
+        description="Aşama 1'de bulunan toplam marka sayısı",
+    )
+    brands_in_budget: int = Field(
+        0,
+        ge=0,
+        description="Bütçeye giren marka sayısı",
+    )
+
+    confidence: float = Field(..., ge=0.0, le=1.0)
