@@ -166,6 +166,7 @@ class AgentState(TypedDict, total=False):
     recommendation: FinalRecommendation | None
     verification: VerificationResult | None
     audit: AuditResult | None
+    consultant_output: dict | None 
 
     # ===== Workflow Control =====
     workflow_status: WorkflowStatus
@@ -184,3 +185,4 @@ class AgentState(TypedDict, total=False):
 
     # ===== Error Handling =====
     errors: list[dict]
+    
