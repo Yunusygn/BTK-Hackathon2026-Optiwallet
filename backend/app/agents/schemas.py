@@ -542,3 +542,120 @@ class ResearchOutputV3(BaseModel):
     )
 
     confidence: float = Field(..., ge=0.0, le=1.0)
+
+    # ============================================================
+# MarketAgent Schemas
+# ============================================================
+
+class SellerInfo(BaseModel):
+    """Bir satıcının ürün için bilgileri."""
+
+    seller_name: str = Field(..., max_length=100, description="Trendyol, Hepsiburada, vs.")
+    price_try: float | None = Field(
+        None,
+        ge=0,
+        description="Fiyat TRY (bilinmiyorsa None)",
+    )
+    url: str | None = Field(None, max_length=1000, description="Ürün sayfası URL")
+    rating: float | None = Field(
+        None,
+        ge=0,
+        le=5,
+        description="Satıcı puanı 0-5",
+    )
+    delivery_info: str | None = Field(
+        None,
+        max_length=200,
+        description="Teslimat süresi/durumu",
+    )
+    installment_info: str | None = Field(
+        None,
+        max_length=300,
+        description="Taksit bilgisi (örn: '12 ay vade farksız')",
+    )
+    is_physical_store: bool = Field(
+        False,
+        description="Fiziksel mağazada da var mı",
+    )
+
+
+class PriceHistory(BaseModel):
+    """Fiyat geçmişi bilgisi (varsa)."""
+
+    current_price: float = Field(..., ge=0)
+    last_30_days_avg: float | None = Field(None, ge=0)
+    trend: str = Field(
+        "stable",
+        description="rising | falling | stable",
+        max_length=20,
+    )
+    percent_change: float | None = Field(
+        None,
+        description="30 gün değişim yüzdesi",
+    )
+
+
+class MarketProduct(BaseModel):
+    """Bir ürünün tam pazar analizi."""
+
+    product_name: str = Field(..., max_length=200)
+    brand: str | None = Field(None, max_length=100)
+
+    best_price: float = Field(..., ge=0, description="En iyi fiyat")
+    best_seller: SellerInfo = Field(..., description="En iyi satıcı")
+
+    all_sellers: list[SellerInfo] = Field(
+        default_factory=list,
+        max_length=8,
+        description="Tüm taranan satıcılar",
+    )
+
+    price_history: PriceHistory | None = Field(
+        None,
+        description="30 günlük fiyat trendi (varsa)",
+    )
+
+    campaign_alert: str | None = Field(
+        None,
+        max_length=500,
+        description="Yaklaşan kampanya uyarısı ('Black Friday 10 gün sonra')",
+    )
+
+    stock_status: str = Field(
+        "in_stock",
+        description="in_stock | low_stock | out_of_stock",
+        max_length=20,
+    )
+
+    is_within_budget: bool = Field(
+        True,
+        description="Kullanıcı bütçesi dahilinde mi",
+    )
+
+
+class MarketOutput(BaseModel):
+    """MarketAgent çıktısı."""
+
+    products: list[MarketProduct] = Field(
+        default_factory=list,
+        max_length=6,
+        description="Top ürünler için pazar analizi",
+    )
+
+    market_summary: str = Field(
+        ...,
+        max_length=1500,
+        description="Türkçe pazar özeti (genel trend, kampanyalar)",
+    )
+
+    budget_status: dict = Field(
+        default_factory=dict,
+        description="user_budget, in_budget_count, out_of_budget_count",
+    )
+
+    sources: list[SourceCitation] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+
+    confidence: float = Field(..., ge=0.0, le=1.0)
