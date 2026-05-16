@@ -167,6 +167,8 @@ class AgentState(TypedDict, total=False):
     verification: VerificationResult | None
     audit: AuditResult | None
     consultant_output: dict | None 
+    market_intel: dict | None
+    finance_analysis: dict | None 
 
     # ===== Workflow Control =====
     workflow_status: WorkflowStatus

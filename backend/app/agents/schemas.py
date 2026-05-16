@@ -659,3 +659,170 @@ class MarketOutput(BaseModel):
     )
 
     confidence: float = Field(..., ge=0.0, le=1.0)
+
+    # ============================================================
+# FinanceAgent Schemas
+# ============================================================
+
+class CreditCard(BaseModel):
+    """Tek bir kredi kartı bilgisi."""
+
+    bank_name: str = Field(..., max_length=50, description="Garanti, Akbank, vs.")
+    card_name: str | None = Field(
+        None,
+        max_length=50,
+        description="Bonus, Wings, Maximum, vs.",
+    )
+    credit_limit: float = Field(..., ge=0, description="Kart limiti TRY")
+    current_debt: float = Field(
+        0,
+        ge=0,
+        description="Mevcut borç TRY",
+    )
+    monthly_payment: float = Field(
+        0,
+        ge=0,
+        description="Aylık asgari ödeme TRY",
+    )
+
+
+class UserFinancialProfile(BaseModel):
+    """
+    Kullanıcının finansal profili (KVKK uyumlu, opsiyonel).
+
+    Hiçbir alan zorunlu değil — kullanıcı boş bırakırsa
+    FinanceAgent tahminle çalışır.
+    """
+
+    monthly_income: float | None = Field(
+        None,
+        ge=0,
+        description="Aylık net gelir TRY (opsiyonel)",
+    )
+
+    monthly_fixed_expenses: float | None = Field(
+        None,
+        ge=0,
+        description="Sabit giderler (kira, fatura, vs.) TRY",
+    )
+
+    monthly_variable_expenses: float | None = Field(
+        None,
+        ge=0,
+        description="Değişken giderler (yemek, ulaşım, eğlence) TRY",
+    )
+
+    current_savings: float | None = Field(
+        None,
+        ge=0,
+        description="Birikim TRY",
+    )
+
+    credit_cards: list[CreditCard] = Field(
+        default_factory=list,
+        max_length=10,
+        description="Kullanıcının kredi kartları",
+    )
+
+    consumer_loans_monthly: float = Field(
+        0,
+        ge=0,
+        description="Mevcut tüketici kredisi aylık ödemesi TRY",
+    )
+
+    upcoming_expenses: list[str] = Field(
+        default_factory=list,
+        max_length=10,
+        description="Yaklaşan giderler ('Vergi', 'Sigorta', 'Yıllık üyelik')",
+    )
+
+
+class CashFlowAnalysis(BaseModel):
+    """Cash flow analizi sonucu."""
+
+    monthly_income: float = Field(..., ge=0)
+    monthly_total_expenses: float = Field(..., ge=0)
+    disposable_income: float = Field(..., description="Negative olabilir")
+
+    current_debt_monthly: float = Field(
+        0,
+        ge=0,
+        description="Mevcut aylık borç ödemeleri",
+    )
+
+    debt_to_income_ratio: float = Field(
+        0,
+        ge=0,
+        description="Borç/gelir oranı (0.4+ tehlikeli)",
+    )
+
+    healthy_purchase_capacity: float = Field(
+        ...,
+        ge=0,
+        description="Sağlıklı bir alıma ayırabileceği aylık miktar",
+    )
+
+
+class PurchaseFeasibility(BaseModel):
+    """Bu alımı yapabilir mi analizi."""
+
+    feasibility: str = Field(
+        ...,
+        description="rahat | zor | tehlikeli | imkansiz",
+        max_length=20,
+    )
+
+    cash_purchase: dict = Field(
+        ...,
+        description="Peşin alım analizi",
+    )
+
+    installment_options: list[dict] = Field(
+        default_factory=list,
+        description="Taksit seçenekleri (3, 6, 9, 12 ay)",
+    )
+
+    recommendation: str = Field(
+        ...,
+        max_length=50,
+        description="cash | installment_3 | installment_6 | installment_9 | installment_12 | delay",
+    )
+
+    reasoning: str = Field(
+        ...,
+        max_length=2000,
+        description="Türkçe açıklama (3-5 cümle)",
+    )
+
+
+class FinanceOutput(BaseModel):
+    """FinanceAgent çıktısı (Phase 1)."""
+
+    profile_complete: bool = Field(
+        ...,
+        description="Kullanıcı yeterli finansal bilgi verdi mi",
+    )
+
+    cash_flow: CashFlowAnalysis | None = Field(
+        None,
+        description="Cash flow analizi (profile_complete=True ise)",
+    )
+
+    purchase_feasibility: PurchaseFeasibility | None = Field(
+        None,
+        description="Bu alım yapılabilir mi (profile_complete=True ise)",
+    )
+
+    coaching_message: str = Field(
+        ...,
+        max_length=3000,
+        description="Türkçe finansal koçluk mesajı",
+    )
+
+    warnings: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Önemli uyarılar (acil fon, yüksek borç, vs.)",
+    )
+
+    confidence: float = Field(..., ge=0.0, le=1.0)

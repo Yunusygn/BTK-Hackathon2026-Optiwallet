@@ -16,6 +16,7 @@ Pattern: LangGraph (state machine) + Gemini 2.5 (Smart Routing)
 from app.agents.base import BaseAgent
 from app.agents.gemini_client import ModelTier, get_gemini_model
 from app.agents.consultant import ConsultantAgent
+from app.agents.finance import FinanceAgent 
 from app.agents.market import MarketAgent  
 from app.agents.needs_analysis import NeedsAnalysisAgent
 from app.agents.research import ResearchAgent
@@ -26,6 +27,7 @@ __all__ = [
     "BaseAgent",
     "ModelTier",
     "ConsultantAgent",
+    "FinanceAgent",
     "MarketAgent",
     "NeedsAnalysisAgent",
     "ResearchAgent",
