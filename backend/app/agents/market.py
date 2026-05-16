@@ -71,10 +71,13 @@ class MarketAgent(BaseAgent):
         if not research:
             raise ValueError("MarketAgent: research_intel required")
 
-        # Top ürünleri al
+        # Top + Alternative ürünleri al (toplam ~9 ürün)
         top_evaluations = research.get("top_evaluations", [])
-        if not top_evaluations:
-            self.logger.warning("market_no_top_products")
+        alternative_evaluations = research.get("alternative_evaluations", [])
+        all_products = top_evaluations + alternative_evaluations
+
+        if not all_products:
+            self.logger.warning("market_no_products")
             empty_output = self._build_empty_output(needs)
             return self.update_state(
                 state,
@@ -84,16 +87,18 @@ class MarketAgent(BaseAgent):
 
         budget_max = needs.get("budget_max") if needs else None
 
-        # Ürün listesini hazırla
+        # Ürün listesini hazırla (top + alternative)
         products_str = "\n".join(
             f"- {e['name']} (marka: {e.get('brand', 'N/A')}, "
             f"tahmini fiyat: {e.get('estimated_price_try', 'bilinmiyor')} TL)"
-            for e in top_evaluations
+            for e in all_products
         )
 
         self.logger.info(
             "market_started",
-            product_count=len(top_evaluations),
+            product_count=len(all_products),
+            top_count=len(top_evaluations),
+            alt_count=len(alternative_evaluations),
             budget_max=budget_max,
         )
 
@@ -222,10 +227,58 @@ class MarketAgent(BaseAgent):
                 output = self._build_empty_dict()
 
         # Confidence default
+        # Defaults - LLM bazen field'ları atladığı için defansif
         if "confidence" not in output:
             output["confidence"] = 0.75
+        if "market_summary" not in output or not output["market_summary"]:
+            output["market_summary"] = (
+                "Türkiye e-ticaret pazarında çoklu satıcı karşılaştırması "
+                "tamamlandı."
+            )
+        if "budget_status" not in output:
+            output["budget_status"] = {}
+        if "products" not in output:
+            output["products"] = []
+
+        # Defansif: best_price'i olmayan ürünleri çıkar
+        # (LLM bazen sadece product_name ile ürün döndürüyor)
+        clean_products = []
+        for p in output.get("products", []):
+            if isinstance(p, dict) and p.get("best_price"):
+                # Rating normalize (Gemini bazen 10 üzerinden, biz 5 üzerinden)
+                self._normalize_seller_ratings(p)
+                clean_products.append(p)
+            else:
+                self.logger.warning(
+                    "skipping_incomplete_product",
+                    product_name=p.get("product_name", "unknown") if isinstance(p, dict) else "invalid",
+                )
+        output["products"] = clean_products
 
         return output
+
+    def _normalize_seller_ratings(self, product: dict) -> None:
+        """
+        Satıcı rating'lerini normalize et.
+
+        Gemini bazen 10 üzerinden puan döndürüyor (örn 9.1).
+        Biz 0-5 standart kullanıyoruz.
+
+        Mantık: rating > 5 ise / 2 yap (10 üzerindendir varsayım).
+        """
+        # Best seller
+        best = product.get("best_seller")
+        if isinstance(best, dict) and best.get("rating"):
+            rating = best["rating"]
+            if isinstance(rating, (int, float)) and rating > 5:
+                best["rating"] = round(rating / 2, 1)
+
+        # All sellers
+        for seller in product.get("all_sellers", []):
+            if isinstance(seller, dict) and seller.get("rating"):
+                rating = seller["rating"]
+                if isinstance(rating, (int, float)) and rating > 5:
+                    seller["rating"] = round(rating / 2, 1)
 
     # ============================================================
     # Helpers

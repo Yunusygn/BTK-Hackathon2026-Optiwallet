@@ -560,8 +560,8 @@ class SellerInfo(BaseModel):
     rating: float | None = Field(
         None,
         ge=0,
-        le=5,
-        description="Satıcı puanı 0-5",
+        le=10,
+        description="Satıcı puanı 0-10 (Türk siteler 5 üzerinden, bazı yerler 10)",
     )
     delivery_info: str | None = Field(
         None,
@@ -582,11 +582,11 @@ class SellerInfo(BaseModel):
 class PriceHistory(BaseModel):
     """Fiyat geçmişi bilgisi (varsa)."""
 
-    current_price: float = Field(..., ge=0)
+    current_price: float | None = Field(None, ge=0)
     last_30_days_avg: float | None = Field(None, ge=0)
-    trend: str = Field(
+    trend: str | None = Field(
         "stable",
-        description="rising | falling | stable",
+        description="rising | falling | stable | unknown",
         max_length=20,
     )
     percent_change: float | None = Field(
@@ -601,8 +601,15 @@ class MarketProduct(BaseModel):
     product_name: str = Field(..., max_length=200)
     brand: str | None = Field(None, max_length=100)
 
-    best_price: float = Field(..., ge=0, description="En iyi fiyat")
-    best_seller: SellerInfo = Field(..., description="En iyi satıcı")
+    best_price: float | None = Field(
+        None,
+        ge=0,
+        description="En iyi fiyat (LLM bulamadıysa None)",
+    )
+    best_seller: SellerInfo | None = Field(
+        None,
+        description="En iyi satıcı (LLM bulamadıysa None)",
+    )
 
     all_sellers: list[SellerInfo] = Field(
         default_factory=list,
@@ -638,13 +645,13 @@ class MarketOutput(BaseModel):
 
     products: list[MarketProduct] = Field(
         default_factory=list,
-        max_length=6,
+        max_length=8,
         description="Top ürünler için pazar analizi",
     )
 
     market_summary: str = Field(
-        ...,
-        max_length=1500,
+        default="Pazar analizi tamamlandı.",
+        max_length=2000,
         description="Türkçe pazar özeti (genel trend, kampanyalar)",
     )
 

@@ -3,24 +3,25 @@ LangGraph Workflow — Conversational Recommendation Pipeline.
 
 ARCHITECTURE:
 ConsultantAgent giriş kapısıdır. Confidence'a göre 2 yol:
-- ready=True → ResearchAgent → (gelecekte: Market, Finance, Strategy)
-- ready=False → Kullanıcıya soru gösterip dur (clarification döngüsü)
+- ready=True → Research → Market → Finance → END
+- ready=False → END (kullanıcı clarification cevaplayana kadar)
 
-CURRENT NODES:
+CURRENT NODES (4):
 - consultant: Entry gate (niyet anla, eksikse sor)
 - research: Multi-criteria decision analysis (6 boyut)
+- market: Real-time price + seller analysis
+- finance: Cash flow + debt + coaching
 
 NEXT NODES (gelecek):
-- market: Fiyat + satıcı + kampanya
-- finance: Cash flow + taksit + coaching
-- tco: 5 yıllık toplam maliyet
-- strategy: Sentez + final öneri
-- auditor: Reflexion kontrol
+- tco: 5-year total cost projection
+- strategy: Final synthesis (Pro tier)
+- auditor: Reflexion quality check
 
 PHILOSOPHY:
 - Conversation-first (clarification olmadan pipeline başlamaz)
 - Strict Budget Respect (bütçesiz öneri yok)
-- Patron + Asistan + CEO hiyerarşi
+- Strict Honesty (alım sıkışıksa 'ertele' der)
+- KVKK compliant (finansal bilgi opsiyonel)
 """
 
 from __future__ import annotations
@@ -31,7 +32,9 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.consultant import ConsultantAgent
-from app.agents.research import ResearchAgent
+from app.agents.finance import FinanceAgent
+from app.agents.market import MarketAgent
+from app.agents.research_v3 import ResearchAgentV3
 from app.agents.state import AgentState, WorkflowStatus
 from app.core.logging import get_logger
 
@@ -44,8 +47,6 @@ logger = get_logger(__name__)
 async def consultant_node(state: AgentState) -> AgentState:
     """
     ConsultantAgent node wrapper.
-
-    Kullanıcının giriş kapısı. Niyeti anla, eksikse soru sor.
 
     Output:
         consultant_output dict ile:
@@ -67,8 +68,20 @@ async def consultant_node(state: AgentState) -> AgentState:
 
 
 async def research_node(state: AgentState) -> AgentState:
-    """ResearchAgent node wrapper - 6-dimensional MCDA."""
-    agent = ResearchAgent()
+    """ResearchAgent v3 - Hibrit Smart Filter + Tournament."""
+    agent = ResearchAgentV3()
+    return await agent.run(state)
+
+
+async def market_node(state: AgentState) -> AgentState:
+    """MarketAgent - Real-time price + seller analysis."""
+    agent = MarketAgent()
+    return await agent.run(state)
+
+
+async def finance_node(state: AgentState) -> AgentState:
+    """FinanceAgent - Cash flow + debt + coaching."""
+    agent = FinanceAgent()
     return await agent.run(state)
 
 
@@ -82,9 +95,6 @@ def route_after_consultant(state: AgentState) -> str:
     Kararlar:
     - ready_for_pipeline=True → research (devam et)
     - ready_for_pipeline=False → END (kullanıcı cevap verene kadar bekle)
-
-    Returns:
-        "research" veya "end"
     """
     consultant_output = state.get("consultant_output")
 
@@ -105,7 +115,6 @@ def route_after_consultant(state: AgentState) -> str:
         return "research"
     else:
         # Clarification, educational, veya category_selection mode
-        # Kullanıcıya cevap göster, sonraki turn'ü bekle
         return "end"
 
 
@@ -114,23 +123,21 @@ def route_after_consultant(state: AgentState) -> str:
 # ============================================================
 def build_workflow() -> Any:
     """
-    Conversational Recommendation Pipeline.
+    Conversational Recommendation Pipeline (4 nodes).
 
-    Şu anki node'lar:
-    - consultant: Entry gate
-    - research: Multi-criteria decision analysis
-
-    Eklenecek (gelecek günler):
-    - market, finance, tco, strategy, auditor
-
-    Returns:
-        Compiled LangGraph application.
+    Flow:
+        START → Consultant
+                  ↓ (conditional)
+                  ├── ready → Research → Market → Finance → END
+                  └── not ready → END
     """
     graph = StateGraph(AgentState)
 
     # ===== Node'ları ekle =====
     graph.add_node("consultant", consultant_node)
     graph.add_node("research", research_node)
+    graph.add_node("market", market_node)
+    graph.add_node("finance", finance_node)
 
     # ===== Edges =====
     # Start → Consultant
@@ -146,16 +153,18 @@ def build_workflow() -> Any:
         },
     )
 
-    # Research → END (şimdilik; sonra market, finance, vs.)
-    graph.add_edge("research", END)
+    # Research → Market → Finance → END (linear)
+    graph.add_edge("research", "market")
+    graph.add_edge("market", "finance")
+    graph.add_edge("finance", END)
 
     # Compile
     compiled = graph.compile()
 
     logger.info(
         "workflow_compiled",
-        node_count=2,
-        nodes=["consultant", "research"],
+        node_count=4,
+        nodes=["consultant", "research", "market", "finance"],
         conditional_routing=True,
     )
 
@@ -169,11 +178,7 @@ _workflow_instance: Any | None = None
 
 
 def get_workflow() -> Any:
-    """
-    Singleton workflow instance.
-
-    İlk çağrıda compile edilir, sonra cache'lenir.
-    """
+    """Singleton workflow instance."""
     global _workflow_instance
 
     if _workflow_instance is None:
@@ -193,19 +198,7 @@ def create_initial_state(
     conversation_id: str | None = None,
     user_context: dict | None = None,
 ) -> AgentState:
-    """
-    Workflow için başlangıç state'i oluştur.
-
-    Args:
-        user_query: Kullanıcının doğal dil sorgusu.
-        session_id: Session UUID.
-        user_id: User UUID (misafir mod için None).
-        conversation_id: Var olan konuşmaya devam ediliyorsa.
-        user_context: Profile, finansal profil, vs.
-
-    Returns:
-        Initial AgentState.
-    """
+    """Workflow için başlangıç state'i."""
     return {
         # Identity
         "user_id": user_id,
@@ -219,7 +212,7 @@ def create_initial_state(
         # Messages
         "messages": [],
 
-        # Agent outputs (None başlangıçta)
+        # Agent outputs
         "consultant_output": None,
         "needs_analysis": None,
         "market_intel": None,

@@ -6,7 +6,7 @@ ResearchAgent v3 — Hibrit Smart Filter + Tournament.
 AŞAMA 1: GENİŞ TARAMA
     ↓ Türkiye'deki tüm markalar bulunur (10-20 marka)
     ↓
-AŞAMA 2: SMART FILTER (4 Constraint)
+AŞAMA 2: SMART FILTER (4 Constraint + Veri Sanitizasyonu)
     ├── Bütçe
     ├── Must-haves
     ├── Exclusions
@@ -24,6 +24,10 @@ NEDEN HİBRİT?
 Saf Tournament: 105 LLM call gerek, çok pahalı.
 Saf Filter: Şeffaflık yok, kullanıcı "neden bu yok?" diyemez.
 Hibrit: Hem hızlı hem şeffaf.
+
+PRODUCTION PATTERN — Veri Sanitizasyonu:
+LLM bazen estimated_price_try için string döndürür ("25000", "25.000 TL").
+Stage 2'de Python tarafında bunları float'a normalize ediyoruz.
 """
 
 from __future__ import annotations
@@ -212,7 +216,7 @@ class ResearchAgentV3(BaseAgent):
         return parsed
 
     # ============================================================
-    # AŞAMA 2: Smart Filter (4 Constraint)
+    # AŞAMA 2: Smart Filter (4 Constraint + Veri Sanitizasyonu)
     # ============================================================
     def _stage2_smart_filter(
         self,
@@ -222,11 +226,21 @@ class ResearchAgentV3(BaseAgent):
         exclusions: list[str],
     ) -> tuple[list[dict], list[dict]]:
         """
-        4 constraint ile filtreleme:
-        1. Bütçe
+        4 constraint ile filtreleme + price normalize.
+
+        Constraints:
+        1. Bütçe (price string ise float'a çevrilir)
         2. Must-haves
         3. Exclusions
         4. Lokasyon (Türkiye, otomatik geçildi varsayım)
+
+        Veri Sanitizasyonu:
+        LLM bazen estimated_price_try için string döndürür:
+            "25000"  → 25000.0
+            "25.000" → 25000.0 (Türk binlik ayırıcı)
+            "25,000" → 25000.0
+            "25.000 TL" → 25000.0
+            "bilinmiyor" → None
 
         Returns:
             (in_budget_brands, out_of_budget_brands)
@@ -235,23 +249,30 @@ class ResearchAgentV3(BaseAgent):
         out_of_budget = []
 
         for brand in all_brands:
-            price = brand.get("estimated_price_try")
+            price_raw = brand.get("estimated_price_try")
             name = brand.get("name", "Unknown")
             brand_name = brand.get("brand", "")
 
-            # Constraint 1: Bütçe
-            if budget_max and price:
+            # ===== PRICE NORMALIZE =====
+            # LLM int, float, string, None döndürebilir
+            price: float | None = self._normalize_price(price_raw)
+
+            # Brand dict'i güncelle (sonraki adımlar normalize'lı kullansın)
+            brand["estimated_price_try"] = price
+
+            # ===== Constraint 1: Bütçe =====
+            if budget_max and price is not None:
                 if price > budget_max * 1.1:  # %10 tolerans
                     out_of_budget.append({
                         "name": name,
                         "brand": brand_name,
                         "estimated_price_try": price,
                         "status": "out_of_budget",
-                        "note": f"Tahmini fiyat {int(price)} TL (bütçe üstü)",
+                        "note": f"Tahmini fiyat {int(price):,} TL (bütçe üstü)",
                     })
                     continue
 
-            # Constraint 3: Exclusions
+            # ===== Constraint 3: Exclusions =====
             if exclusions:
                 if any(
                     excl.lower() in brand_name.lower() or
@@ -264,6 +285,60 @@ class ResearchAgentV3(BaseAgent):
             in_budget.append(brand)
 
         return in_budget, out_of_budget
+
+    def _normalize_price(self, price_raw: Any) -> float | None:
+        """
+        Fiyatı float'a normalize et.
+
+        Kabul edilen formatlar:
+            25000 (int)
+            25000.0 (float)
+            "25000" (digit string)
+            "25,000" (US format)
+            "25.000" (Türk binlik ayırıcı)
+            "25.000 TL"
+            "25.000 ₺"
+
+        None döndüren formatlar:
+            None
+            "bilinmiyor"
+            ""
+            "N/A"
+        """
+        if price_raw is None:
+            return None
+
+        # Numeric ise direkt
+        if isinstance(price_raw, (int, float)):
+            try:
+                value = float(price_raw)
+                return value if value > 0 else None
+            except (ValueError, TypeError):
+                return None
+
+        # String ise temizle
+        if isinstance(price_raw, str):
+            cleaned = (
+                price_raw.replace(",", "")  # US binlik ayırıcı
+                .replace(".", "")           # Türk binlik ayırıcı
+                .replace("TL", "")
+                .replace("₺", "")
+                .replace("tl", "")
+                .strip()
+            )
+
+            # Boş veya numeric değil ise None
+            if not cleaned:
+                return None
+
+            try:
+                value = float(cleaned)
+                return value if value > 0 else None
+            except (ValueError, TypeError):
+                return None
+
+        # Diğer tipler (list, dict, vs.)
+        return None
 
     # ============================================================
     # AŞAMA 3: Tiered Evaluation

@@ -77,8 +77,14 @@ class FinanceAgent(BaseAgent):
         needs = state.get("needs_analysis")
         user_context = state.get("user_context", {})
 
+        # market_intel yoksa graceful degradation
+        # (MarketAgent başarısız olduysa, finance generic coaching versin)
         if not market:
-            raise ValueError("FinanceAgent: market_intel required")
+            self.logger.warning(
+                "finance_no_market_data",
+                reason="MarketAgent did not produce output",
+            )
+            return self._build_no_market_response(state, needs)
 
         # En iyi ürünü al (en düşük fiyatlı bütçe içi)
         products = market.get("products", [])
@@ -345,6 +351,52 @@ class FinanceAgent(BaseAgent):
             "warnings": ["Analiz tamamlanamadı"],
             "confidence": 0.3,
         }
+    
+    def _build_no_market_response(
+        self,
+        state: AgentState,
+        needs: dict | None,
+    ) -> AgentState:
+        """
+        MarketAgent başarısız olduğunda graceful fallback.
+
+        ResearchAgent çıktısından fiyat tahmini al, generic coaching ver.
+        """
+        # Research'ten fiyat tahmini almaya çalış
+        research = state.get("research_intel", {})
+        top_evals = research.get("top_evaluations", []) if research else []
+
+        if top_evals:
+            first = top_evals[0]
+            product_name = first.get("name", "Ürün")
+            estimated_price = first.get("estimated_price_try", 0) or 0
+        else:
+            product_name = "Hedef ürün"
+            estimated_price = needs.get("budget_max", 0) if needs else 0
+
+        output = {
+            "profile_complete": False,
+            "cash_flow": None,
+            "purchase_feasibility": None,
+            "coaching_message": (
+                f"{product_name} için yaklaşık {int(estimated_price):,} TL bütçe "
+                f"ayırmanız gerekiyor.\n\n"
+                f"Detaylı pazar bilgisi alınamadığı için kişiselleştirilmiş "
+                f"finansal analiz yapamadım. Ancak genel kurallar:\n\n"
+                f"• Acil durum fonunuzu (3 ay gider) korumaya özen gösterin\n"
+                f"• Bu alım için aylık disposable income'ınızı zorlamayın\n"
+                f"• Vade farksız taksit seçeneklerini araştırın\n"
+                f"• Mevcut borçlarınız varsa onları önceliklendirin"
+            ),
+            "warnings": ["Pazar bilgisi alınamadı, tahmini fiyatla genel tavsiye"],
+            "confidence": 0.4,
+        }
+
+        return self.update_state(
+            state,
+            finance_analysis=output,
+            current_agent=self.name,
+        )
 
     def _build_no_products_response(self, state: AgentState) -> AgentState:
         """MarketAgent ürün bulamadıysa."""
