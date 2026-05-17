@@ -169,6 +169,7 @@ class AgentState(TypedDict, total=False):
     consultant_output: dict | None 
     market_intel: dict | None
     finance_analysis: dict | None 
+    tco_analysis: dict | None
 
     # ===== Workflow Control =====
     workflow_status: WorkflowStatus

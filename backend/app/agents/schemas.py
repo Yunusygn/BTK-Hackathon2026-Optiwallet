@@ -5,19 +5,26 @@ Tüm agent çıktıları bu schema'lardan validate edilir.
 Pattern: Domain-driven design + structured outputs.
 
 İçindekiler:
-- NeedsAnalysisOutput: NeedsAnalysisAgent çıktısı (legacy, ConsultantAgent kullanıyor)
+- NeedsAnalysisOutput: ConsultantAgent kullanıyor (parsed_needs)
 - SourceCitation: Tüm grounding citation'ları için ortak
 - DimensionScore: 6-boyutlu MCDA için tek boyut skoru
 - MultiCriteriaEvaluation: Bir marka için 6 boyutlu değerlendirme
 - ResearchOutput: ResearchAgent v2 çıktısı (multi-criteria)
-- ClarificationOption: Multiple choice soru seçeneği
-- ClarificationQuestion: Kullanıcıya sorulacak soru
+- AlternativeEvaluation: Tier 2 (özet)
+- BrandMention: Tier 3 (sadece isim)
+- ResearchOutputV3: ResearchAgent v3 (Hibrit Smart Filter)
+- ClarificationOption / ClarificationQuestion: ConsultantAgent
 - ConsultantOutput: ConsultantAgent çıktısı
+- SellerInfo / PriceHistory / MarketProduct / MarketOutput: MarketAgent
+- CreditCard / UserFinancialProfile: FinanceAgent input
+- CashFlowAnalysis / PurchaseFeasibility / FinanceOutput: FinanceAgent
+- TCOBreakdown / TCODataSource / TCOOutput: TCOAgent v2
 
 Manifesto:
 - Strict Budget Respect (kullanıcı sınırı kutsal)
 - Multi-Criteria Decision Analysis (Consumer Reports standardı)
 - Turkey + Global perspective (cross-cultural)
+- Defense in Depth (Optional fields, defansif validators)
 """
 
 from __future__ import annotations
@@ -146,7 +153,6 @@ class MultiCriteriaEvaluation(BaseModel):
     6. Long-term Quality: Uzun vadeli kalite
 
     Cross-cultural: Türkiye + Global perspektif ayrı tutulur.
-    Beko paradoxu örneği: Türkiye'de servis 10, global'de tech 6.
     """
 
     # Identity
@@ -224,7 +230,7 @@ class MultiCriteriaEvaluation(BaseModel):
 
 
 # ============================================================
-# Research Output (v2 — Multi-Criteria)
+# Research Output (v2 — Multi-Criteria, legacy)
 # ============================================================
 class ResearchOutput(BaseModel):
     """
@@ -232,52 +238,40 @@ class ResearchOutput(BaseModel):
 
     Eski "top_brands" + "avoid_brands" listesi yerine artık
     her marka için detaylı 6-boyutlu değerlendirme yapılır.
-
-    Esnek değerlendirme sayısı: 0-15 marka.
-    - Hiç ürün yoksa boş array (bütçede yok demek)
-    - Bütçeye uyan markaları analiz eder
-    - Kalite > Sayı felsefesi (genelde 3-8 ideal)
     """
 
-    # Genel özet
     consensus_summary: str = Field(
         ...,
         max_length=2500,
         description="2-4 cümlelik genel Türkçe özet",
     )
 
-    # Çok boyutlu marka/model değerlendirmeleri
     evaluations: list[MultiCriteriaEvaluation] = Field(
         default_factory=list,
         description=(
             "Bütçe ve kriterlere uyan tüm markaların 6-boyutlu "
-            "değerlendirmesi. İdeal sayı: 5-8 marka. "
-            "Az marka kullanıcı için zayıf, çok marka analiz felci yaratır."
+            "değerlendirmesi. İdeal sayı: 5-8 marka."
         ),
         max_length=15,
     )
 
-    # Forum gerçek alıntıları (kullanıcı için şeffaflık)
     forum_quotes: list[dict] = Field(
         default_factory=list,
         description="Forum alıntıları: {source, quote, sentiment}",
         max_length=10,
     )
 
-    # Pazar genel notları (kategori bazında)
     category_insights: list[str] = Field(
         default_factory=list,
         description="Bu kategoride genel öğrenilen şeyler",
         max_length=10,
     )
 
-    # Kaynaklar (Grounding metadata'dan)
     sources: list[SourceCitation] = Field(
         default_factory=list,
         max_length=30,
     )
 
-    # Overall confidence
     confidence: float = Field(
         ...,
         ge=0.0,
@@ -285,9 +279,135 @@ class ResearchOutput(BaseModel):
         description="Araştırmanın genel güvenilirliği",
     )
 
-    # NOT: Bütçede hiç ürün yoksa evaluations boş olabilir,
-    # bu geçerli bir durum — sistem "yok" diyebilmeli.
-    # Eskiden "en az 1" zorunluluğu vardı, kaldırıldı.
+
+# ============================================================
+# ResearchAgent v3 — Tiered Evaluation Schemas
+# ============================================================
+class AlternativeEvaluation(BaseModel):
+    """
+    Tier 2 - Özet değerlendirme (5-8. sıradaki markalar).
+    """
+
+    name: str = Field(..., max_length=200, description="Marka veya model adı")
+    brand: str | None = Field(None, max_length=100)
+
+    overall_score: float = Field(
+        ...,
+        ge=0.0,
+        le=10.0,
+        description="Tahmini genel skor (0-10)",
+    )
+
+    one_line_summary: str = Field(
+        ...,
+        max_length=300,
+        description="Tek cümlelik özet",
+    )
+
+    why_not_top: str = Field(
+        ...,
+        max_length=300,
+        description="Neden top 4'te değil",
+    )
+
+    estimated_price_try: float | None = Field(
+        None,
+        ge=0,
+        description="Tahmini fiyat TRY",
+    )
+    is_within_budget: bool | None = Field(
+        None,
+        description="Bütçe dahilinde mi",
+    )
+
+
+class BrandMention(BaseModel):
+    """
+    Tier 3 - Sadece bahsetme (9+ markalar).
+
+    Pazarda var ama önerilen liste dışında.
+    Şeffaflık için sadece adı + tek kelime durumu.
+    """
+
+    name: str = Field(..., max_length=200)
+    status: str = Field(
+        ...,
+        max_length=50,
+        description="premium | budget | out_of_budget | niche | unavailable",
+    )
+    note: str = Field(
+        ...,
+        max_length=500,
+        description="Kısa not",
+    )
+
+
+class ResearchOutputV3(BaseModel):
+    """
+    ResearchAgent v3 — Hibrit Smart Filter + Tournament çıktısı.
+
+    3 katmanlı çıktı:
+    - top_evaluations: 4 ana öneri (tam 6 boyut)
+    - alternative_evaluations: 4 alternatif (özet)
+    - market_overview: 7+ marka (sadece isim)
+    """
+
+    consensus_summary: str = Field(
+        ...,
+        max_length=2500,
+        description="Türkçe pazar özeti",
+    )
+
+    # 🥇 TIER 1: Top 4 - Tam 6 boyut MCDA
+    top_evaluations: list[MultiCriteriaEvaluation] = Field(
+        default_factory=list,
+        description="Top 4 marka - tam 6 boyut analizi",
+        max_length=4,
+    )
+
+    # 🥈 TIER 2: 5-8 - Alternatifler (özet)
+    alternative_evaluations: list[AlternativeEvaluation] = Field(
+        default_factory=list,
+        description="Alternatifler (5-8. sıra) - özet bilgi",
+        max_length=6,
+    )
+
+    # 🥉 TIER 3: 9+ - Pazardaki diğer markalar
+    market_overview: list[BrandMention] = Field(
+        default_factory=list,
+        description="Pazardaki diğer markalar (sadece isim)",
+        max_length=15,
+    )
+
+    forum_quotes: list[dict] = Field(
+        default_factory=list,
+        description="Forum alıntıları",
+        max_length=10,
+    )
+
+    category_insights: list[str] = Field(
+        default_factory=list,
+        description="Kategori içgörüleri",
+        max_length=10,
+    )
+
+    sources: list[SourceCitation] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+
+    total_brands_scanned: int = Field(
+        0,
+        ge=0,
+        description="Aşama 1'de bulunan toplam marka sayısı",
+    )
+    brands_in_budget: int = Field(
+        0,
+        ge=0,
+        description="Bütçeye giren marka sayısı",
+    )
+
+    confidence: float = Field(..., ge=0.0, le=1.0)
 
 
 # ============================================================
@@ -346,207 +466,57 @@ class ConsultantOutput(BaseModel):
     """
     ConsultantAgent çıktısı.
 
-    3 farklı interaction mode:
+    4 farklı interaction mode:
     - "ready": Tüm bilgiler net, pipeline başlayabilir
     - "clarification": 1-3 soru sorulması gerek
-    - "educational": Kullanıcı bilgi istiyor (özellik anlatımı)
+    - "educational": Kullanıcı bilgi istiyor
     - "category_selection": Kategori belirsiz, sor
-
-    OptiWallet Manifesto:
-    - Strict Budget Respect: Bütçe yoksa hazır deme
-    - Progressive Conversation: Max 3 soru
-    - Karar kullanıcının: Biz yardım ederiz, dayatmayız
     """
 
-    # Karar
     ready_for_pipeline: bool = Field(
         ...,
         description="True = pipeline başlayabilir, False = clarification gerek",
     )
 
-    # Parsed needs (sadece ready=True ise dolu)
     parsed_needs: NeedsAnalysisOutput | None = Field(
         None,
         description="Net olarak çıkarılan ihtiyaçlar (ready=True ise)",
     )
 
-    # Clarification (eğer gerek varsa)
     clarification_questions: list[ClarificationQuestion] = Field(
         default_factory=list,
         max_length=3,
         description="Sorulacak sorular (max 3, UX kuralı)",
     )
 
-    # Eğitim modu (kullanıcı bilgi istiyorsa)
     educational_content: str | None = Field(
         None,
         max_length=3000,
-        description="Bilgilendirme içeriği (TV özellikleri, vs.)",
+        description="Bilgilendirme içeriği",
     )
 
-    # Mod
     interaction_mode: str = Field(
         ...,
         description="ready | clarification | educational | category_selection",
     )
 
-    # Mesaj kullanıcıya
     message_to_user: str = Field(
         ...,
         max_length=2000,
         description="Kullanıcıya gösterilecek Türkçe mesaj",
     )
 
-    # Confidence
     confidence: float = Field(
         ...,
         ge=0.0,
         le=1.0,
-        description="Anlama güveni (kendi iş kurallarımızla hesaplandı)",
+        description="Anlama güveni (Python iş kurallarıyla hesaplandı)",
     )
+
 
 # ============================================================
-# ResearchAgent v3 — Tiered Evaluation Schemas
-# ============================================================
-
-class AlternativeEvaluation(BaseModel):
-    """
-    Tier 2 - Özet değerlendirme (5-8. sıradaki markalar).
-
-    Top 4'e giremedi ama bütçede ve kriterlere uyuyor.
-    Kullanıcıya alternatif olarak sunulur.
-    """
-
-    name: str = Field(..., max_length=200, description="Marka veya model adı")
-    brand: str | None = Field(None, max_length=100)
-
-    overall_score: float = Field(
-        ...,
-        ge=0.0,
-        le=10.0,
-        description="Tahmini genel skor (0-10)",
-    )
-
-    one_line_summary: str = Field(
-        ...,
-        max_length=300,
-        description="Tek cümlelik özet ('Servis güçlü ama tech orta')",
-    )
-
-    why_not_top: str = Field(
-        ...,
-        max_length=300,
-        description="Neden top 4'te değil ('Görüntü kalitesi düşük')",
-    )
-
-    estimated_price_try: float | None = Field(
-        None,
-        ge=0,
-        description="Tahmini fiyat TRY",
-    )
-    is_within_budget: bool | None = Field(
-        None,
-        description="Bütçe dahilinde mi",
-    )
-
-
-class BrandMention(BaseModel):
-    """
-    Tier 3 - Sadece bahsetme (9+ markalar).
-
-    Pazarda var ama önerilen liste dışında.
-    Şeffaflık için sadece adı + tek kelime durumu.
-    """
-
-    name: str = Field(..., max_length=200)
-    status: str = Field(
-        ...,
-        max_length=50,
-        description="premium | budget | out_of_budget | niche | unavailable",
-    )
-    note: str = Field(
-        ...,
-        max_length=500,
-        description="Kısa not ('Bütçe üstü 32K' veya 'Çok yeni, az veri')",
-    )
-
-
-class ResearchOutputV3(BaseModel):
-    """
-    ResearchAgent v3 — Hibrit Smart Filter + Tournament çıktısı.
-
-    3 katmanlı çıktı:
-    - top_evaluations: 4 ana öneri (tam 6 boyut)
-    - alternative_evaluations: 4 alternatif (özet)
-    - market_overview: 7+ marka (sadece isim)
-
-    Total ürün gösterimi: 15+ marka (şeffaflık)
-    """
-
-    # Genel özet
-    consensus_summary: str = Field(
-        ...,
-        max_length=2500,
-        description="Türkçe pazar özeti",
-    )
-
-    # 🥇 TIER 1: Top 4 - Tam 6 boyut MCDA
-    top_evaluations: list[MultiCriteriaEvaluation] = Field(
-        default_factory=list,
-        description="Top 4 marka - tam 6 boyut analizi",
-        max_length=4,
-    )
-
-    # 🥈 TIER 2: 5-8 - Alternatifler (özet)
-    alternative_evaluations: list[AlternativeEvaluation] = Field(
-        default_factory=list,
-        description="Alternatifler (5-8. sıra) - özet bilgi",
-        max_length=6,
-    )
-
-    # 🥉 TIER 3: 9+ - Pazardaki diğer markalar
-    market_overview: list[BrandMention] = Field(
-        default_factory=list,
-        description="Pazardaki diğer markalar (sadece isim)",
-        max_length=15,
-    )
-
-    # Forum & insights
-    forum_quotes: list[dict] = Field(
-        default_factory=list,
-        description="Forum alıntıları",
-        max_length=10,
-    )
-
-    category_insights: list[str] = Field(
-        default_factory=list,
-        description="Kategori içgörüleri",
-        max_length=10,
-    )
-
-    sources: list[SourceCitation] = Field(
-        default_factory=list,
-        max_length=30,
-    )
-
-    # Strict Budget Constraint feedback
-    total_brands_scanned: int = Field(
-        0,
-        ge=0,
-        description="Aşama 1'de bulunan toplam marka sayısı",
-    )
-    brands_in_budget: int = Field(
-        0,
-        ge=0,
-        description="Bütçeye giren marka sayısı",
-    )
-
-    confidence: float = Field(..., ge=0.0, le=1.0)
-
-    # ============================================================
 # MarketAgent Schemas
 # ============================================================
-
 class SellerInfo(BaseModel):
     """Bir satıcının ürün için bilgileri."""
 
@@ -625,7 +595,7 @@ class MarketProduct(BaseModel):
     campaign_alert: str | None = Field(
         None,
         max_length=500,
-        description="Yaklaşan kampanya uyarısı ('Black Friday 10 gün sonra')",
+        description="Yaklaşan kampanya uyarısı",
     )
 
     stock_status: str = Field(
@@ -667,10 +637,10 @@ class MarketOutput(BaseModel):
 
     confidence: float = Field(..., ge=0.0, le=1.0)
 
-    # ============================================================
+
+# ============================================================
 # FinanceAgent Schemas
 # ============================================================
-
 class CreditCard(BaseModel):
     """Tek bir kredi kartı bilgisi."""
 
@@ -740,7 +710,7 @@ class UserFinancialProfile(BaseModel):
     upcoming_expenses: list[str] = Field(
         default_factory=list,
         max_length=10,
-        description="Yaklaşan giderler ('Vergi', 'Sigorta', 'Yıllık üyelik')",
+        description="Yaklaşan giderler",
     )
 
 
@@ -830,6 +800,184 @@ class FinanceOutput(BaseModel):
         default_factory=list,
         max_length=5,
         description="Önemli uyarılar (acil fon, yüksek borç, vs.)",
+    )
+
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+
+# ============================================================
+# TCOAgent v3 Schemas (Lean Honesty)
+# ============================================================
+class TCOBreakdown(BaseModel):
+    """
+    5-yıl Elektrik Maliyeti tahmini.
+
+    LEAN HONESTY:
+    - Sadece elektrik (bilimsel temelli)
+    - Aralık gösterimi (min-max-avg)
+    - Toplam tahmin YOK (kafa karıştırıcı)
+    - Servis, aksesuar, ikinci el HESAPTA YOK (yalan riski)
+    """
+
+    purchase_price: float = Field(..., ge=0, description="Alış fiyatı TRY")
+
+    energy_label: str = Field(
+        "C",
+        description="A, B, C, D, E, F, G veya 'unknown'",
+        max_length=20,
+    )
+
+    # Yıllık tüketim ARALIĞI (tek rakam değil — EU standardı)
+    annual_kwh_min: float = Field(
+        ...,
+        ge=0,
+        description="EU standardı düşük sınır (yıllık kWh)",
+    )
+    annual_kwh_max: float = Field(
+        ...,
+        ge=0,
+        description="EU standardı yüksek sınır (yıllık kWh)",
+    )
+    annual_kwh_avg: float = Field(
+        ...,
+        ge=0,
+        description="Aralık ortalaması (yıllık kWh)",
+    )
+
+    kwh_price_try: float = Field(
+        ...,
+        ge=0,
+        description="Türkiye güncel kWh fiyatı TRY",
+    )
+
+    # 5-yıl elektrik maliyeti ARALIĞI
+    electricity_5yr_min: float = Field(
+        ...,
+        ge=0,
+        description="5-yıl elektrik düşük tahmin",
+    )
+    electricity_5yr_max: float = Field(
+        ...,
+        ge=0,
+        description="5-yıl elektrik yüksek tahmin",
+    )
+    electricity_5yr_avg: float = Field(
+        ...,
+        ge=0,
+        description="5-yıl elektrik aralık ortalaması",
+    )
+
+
+class TCODataSource(BaseModel):
+    """TCO hesaplamada kullanılan veri kaynakları (şeffaflık)."""
+
+    energy_label_source: str = Field(
+        "estimated",
+        description="grounding | cache | estimated",
+        max_length=20,
+    )
+    kwh_price_source: str = Field(
+        "estimated",
+        description="grounding | cache | estimated",
+        max_length=20,
+    )
+    accessories_source: str = Field(
+        "estimated",
+        description="grounding | cache | estimated",
+        max_length=20,
+    )
+    service_reliability_source: str = Field(
+        "estimated",
+        description="grounding | cache | estimated",
+        max_length=20,
+    )
+    kwh_price_fetched_at: str | None = Field(
+        None,
+        description="ISO datetime kWh fiyatı çekildiği zaman",
+    )
+
+
+class AccessoryRecommendation(BaseModel):
+    """Bir aksesuar önerisi (Grounding ile çekilebilir)."""
+
+    name: str = Field(..., max_length=200, description="Aksesuar adı")
+    price_range: str = Field(
+        ...,
+        max_length=100,
+        description="Fiyat aralığı (örn: '1.500-3.000 TL')",
+    )
+    why_needed: str = Field(
+        ...,
+        max_length=500,
+        description="Neden gerekli (kullanıcıya açıklama)",
+    )
+    importance: str = Field(
+        "optional",
+        description="essential | recommended | optional",
+        max_length=20,
+    )
+
+
+class ServiceReliability(BaseModel):
+    """Servis/arıza sıklığı bilgisi (Grounding ile)."""
+
+    level: str = Field(
+        ...,
+        description="low | medium | high | unknown",
+        max_length=20,
+    )
+    summary: str = Field(
+        ...,
+        max_length=800,
+        description="Türkçe özet (tarih bilgisi dahil)",
+    )
+    common_issues: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Tespit edilen yaygın sorunlar (her madde tarih bilgili)",
+    )
+    active_complaints_last_12m: bool | None = Field(
+        None,
+        description="Son 12 ay içinde aktif şikayet var mı",
+    )
+    complaint_time_range: str | None = Field(
+        None,
+        max_length=50,
+        description="Şikayet yıl aralığı (örn: '2022-2024')",
+    )
+
+
+class TCOOutput(BaseModel):
+    """TCOAgent v3 çıktısı."""
+
+    product_name: str = Field(..., max_length=200)
+    breakdown: TCOBreakdown
+
+    coaching_message: str = Field(
+        ...,
+        max_length=4000,
+        description="Türkçe TCO açıklama mesajı",
+    )
+
+    accessories_recommended: list[AccessoryRecommendation] = Field(
+        default_factory=list,
+        max_length=10,
+        description="Önerilen aksesuarlar (Grounding ile)",
+    )
+
+    service_reliability: ServiceReliability | None = Field(
+        None,
+        description="Servis/arıza sıklığı (Grounding ile)",
+    )
+
+    data_sources: TCODataSource = Field(
+        default_factory=TCODataSource,
+        description="Veri kaynakları (şeffaflık)",
+    )
+
+    sources: list[SourceCitation] = Field(
+        default_factory=list,
+        max_length=10,
     )
 
     confidence: float = Field(..., ge=0.0, le=1.0)

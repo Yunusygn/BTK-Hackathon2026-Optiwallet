@@ -54,7 +54,32 @@ async def main():
                 "overall_score": 7.3,
             },
         ],
-        "alternative_evaluations": [],
+        "alternative_evaluations": [
+            {
+                "name": "Philips 55PUS8050",
+                "brand": "Philips",
+                "estimated_price_try": 25000,
+                "overall_score": 7.0,
+            },
+            {
+                "name": "Arçelik 55 A 750 C",
+                "brand": "Arçelik",
+                "estimated_price_try": 24000,
+                "overall_score": 7.0,
+            },
+            {
+                "name": "Vestel 55UA9600",
+                "brand": "Vestel",
+                "estimated_price_try": 22500,
+                "overall_score": 6.8,
+            },
+            {
+                "name": "LG 55UR74006LB",
+                "brand": "LG",
+                "estimated_price_try": 28000,
+                "overall_score": 7.2,
+            },
+        ],
         "market_overview": [],
     }
 
