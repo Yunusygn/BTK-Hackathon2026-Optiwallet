@@ -34,6 +34,7 @@ from langgraph.graph import END, START, StateGraph
 from app.agents.consultant import ConsultantAgent
 from app.agents.finance import FinanceAgent
 from app.agents.tco import TCOAgent
+from app.agents.strategy import StrategyAgent
 from app.agents.market import MarketAgent
 from app.agents.research_v3 import ResearchAgentV3
 from app.agents.state import AgentState, WorkflowStatus
@@ -90,6 +91,11 @@ async def tco_node(state: AgentState) -> AgentState:
     agent = TCOAgent()
     return await agent.run(state)
 
+async def strategy_node(state: AgentState) -> AgentState:
+    """StrategyAgent - Final synthesis of all agents."""
+    agent = StrategyAgent()
+    return await agent.run(state)
+
 # ============================================================
 # Conditional Router
 # ============================================================
@@ -144,6 +150,7 @@ def build_workflow() -> Any:
     graph.add_node("market", market_node)
     graph.add_node("finance", finance_node)
     graph.add_node("tco", tco_node)
+    graph.add_node("strategy", strategy_node)
 
     # ===== Edges =====
     # Start → Consultant
@@ -163,15 +170,16 @@ def build_workflow() -> Any:
     graph.add_edge("research", "market")
     graph.add_edge("market", "finance")
     graph.add_edge("finance", "tco")  
-    graph.add_edge("tco", END)        
+    graph.add_edge("tco", "strategy")
+    graph.add_edge("strategy", END)     
 
     # Compile
     compiled = graph.compile()
 
     logger.info(
         "workflow_compiled",
-        node_count=5,
-        nodes=["consultant", "research", "market", "finance", "tco"],
+        node_count=6,
+        nodes=["consultant", "research", "market", "finance", "tco", "strategy"],
         conditional_routing=True,
     )
 

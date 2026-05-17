@@ -65,7 +65,7 @@ CACHE_KEY_SERVICE_PREFIX = "service_reliability_"
 
 CACHE_TTL_SECONDS = 86400  # 24 saat (kWh fiyatı)
 CACHE_TTL_ACCESSORIES = 604800  # 7 gün
-CACHE_TTL_SERVICE = 2592000  # 30 gün
+CACHE_TTL_SERVICE = 86400  # 24 saat
 
 
 # ============================================================
@@ -719,7 +719,7 @@ class TCOAgent(BaseAgent):
                 "🔧 **SERVİS DURUMU:** Bu model için yeterli kullanıcı verisi "
                 "bulunamadı.\n"
             )
-            
+
         # ŞEFFAFLIK NOTU
         msg_parts.append("ℹ️ **Bu bilgiler nasıl toplandı?**")
         msg_parts.append(

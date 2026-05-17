@@ -170,6 +170,7 @@ class AgentState(TypedDict, total=False):
     market_intel: dict | None
     finance_analysis: dict | None 
     tco_analysis: dict | None
+    final_strategy: dict | None
 
     # ===== Workflow Control =====
     workflow_status: WorkflowStatus

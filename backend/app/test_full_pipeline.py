@@ -119,6 +119,97 @@ async def test_scenario(
             print(f"\n   💬 KOÇLUK MESAJI ÖZETİ:")
             print(f"      {msg[:300]}...")
 
+    # STEP 5 — TCO
+        tco = result.get("tco_analysis")
+        if tco:
+            print(f"\n📍 STEP 5 — TCO (Elektrik Maliyeti):")
+            bd = tco.get("breakdown", {})
+
+            print(f"   ⚡ Enerji etiketi: {bd.get('energy_label', 'N/A')}")
+            print(f"   🔋 Yıllık tüketim: {bd.get('annual_kwh_min', 0):.0f}-"
+                  f"{bd.get('annual_kwh_max', 0):.0f} kWh")
+            print(f"   💡 kWh fiyatı: {bd.get('kwh_price_try', 0):.2f} TL")
+            print(f"   💸 5-yıl elektrik: {bd.get('electricity_5yr_min', 0):,.0f}-"
+                  f"{bd.get('electricity_5yr_max', 0):,.0f} TL")
+
+            # Servis
+            service = tco.get("service_reliability")
+            if service:
+                level = service.get('level', 'N/A')
+                level_emoji = {
+                    "low": "✅",
+                    "medium": "🟡",
+                    "high": "⚠️",
+                }.get(level, "❓")
+                print(f"\n   🔧 Servis: {level_emoji} {level.upper()}")
+                if service.get('complaint_time_range'):
+                    print(f"   📅 Şikayet dönemi: {service['complaint_time_range']}")
+                active_12m = service.get('active_complaints_last_12m')
+                if active_12m is True:
+                    print(f"   ⚠️  Son 12 ay AKTİF şikayet")
+                elif active_12m is False:
+                    print(f"   ✅ Son 12 ay aktif ciddi şikayet YOK")
+
+                issues = service.get('common_issues', [])
+                if issues:
+                    print(f"   Yaygın sorunlar:")
+                    for issue in issues[:3]:
+                        print(f"      • {issue[:150]}")
+
+            # Aksesuar
+            accessories = tco.get("accessories_recommended", [])
+            if accessories:
+                print(f"\n   🎁 Aksesuar önerileri ({len(accessories)}):")
+                for a in accessories[:3]:
+                    importance_emoji = {
+                        "essential": "⭐",
+                        "recommended": "✅",
+                        "optional": "💡",
+                    }.get(a.get('importance', 'optional'), "💡")
+                    print(f"      {importance_emoji} {a.get('name', 'N/A')} "
+                          f"({a.get('price_range', 'N/A')})")        
+
+    # STEP 6 — STRATEGY (Final Sentez)
+        strategy = result.get("final_strategy")
+        if strategy:
+            print(f"\n📍 STEP 6 — STRATEGY (Final Sentez):")
+            print(f"   🎭 Persona: {strategy.get('persona_detected', 'N/A')}")
+
+            rec = strategy.get("recommended_product", {})
+            print(f"\n   🏆 ANA ÖNERİ:")
+            print(f"      {rec.get('name', 'N/A')} - "
+                  f"{rec.get('price_try', 0):,.0f} TL")
+            print(f"      Neden: {rec.get('why_chosen', '')[:300]}")
+
+            alts = strategy.get("alternatives", [])
+            if alts:
+                print(f"\n   🥈 ALTERNATİFLER ({len(alts)}):")
+                for a in alts[:2]:
+                    print(f"      • {a.get('name', 'N/A')} "
+                          f"({a.get('tier', '')}, "
+                          f"{a.get('price_try', 0):,.0f} TL)")
+
+            actions = strategy.get("action_plan", [])
+            if actions:
+                print(f"\n   📋 EYLEM PLANI ({len(actions)} adım):")
+                for a in actions[:5]:
+                    priority_emoji = {
+                        "critical": "🚨",
+                        "important": "⚠️",
+                        "normal": "💡",
+                    }.get(a.get('priority', 'normal'), "•")
+                    print(f"      {priority_emoji} {a.get('order', '?')}. "
+                          f"{a.get('action', '')[:150]}")
+
+            warnings = strategy.get("warnings", [])
+            if warnings:
+                print(f"\n   ⚠️  UYARILAR ({len(warnings)}):")
+                for w in warnings[:3]:
+                    print(f"      • {w[:200]}")
+
+            print(f"\n   💬 FINAL MESAJ:")
+            print(f"   {strategy.get('final_message', '')[:600]}...")        
+
     # === Errors ===
     errors = result.get("errors", [])
     if errors:
@@ -131,7 +222,7 @@ async def test_scenario(
 
 async def main():
     print("=" * 80)
-    print("🚀 FULL PIPELINE TEST — End-to-End (4 Agent)")
+    print("🚀 FULL PIPELINE TEST — End-to-End (6 Agent)")
     print("=" * 80)
 
     # SENARYO 1: Full pipeline (Net query + financial profile)

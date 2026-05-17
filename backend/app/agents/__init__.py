@@ -21,6 +21,7 @@ from app.agents.market import MarketAgent
 from app.agents.needs_analysis import NeedsAnalysisAgent
 from app.agents.research import ResearchAgent
 from app.agents.state import AgentState, WorkflowStatus
+from app.agents.strategy import StrategyAgent
 from app.agents.tco import TCOAgent
 
 __all__ = [
@@ -34,5 +35,6 @@ __all__ = [
     "ResearchAgent",
     "WorkflowStatus",
     "get_gemini_model",
+    "StrategyAgent",
     "TCOAgent",
 ]

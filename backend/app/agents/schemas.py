@@ -981,3 +981,130 @@ class TCOOutput(BaseModel):
     )
 
     confidence: float = Field(..., ge=0.0, le=1.0)
+
+    # ============================================================
+# StrategyAgent Schemas
+# ============================================================
+class StrategyRecommendedProduct(BaseModel):
+    """Önerilen ana ürün."""
+
+    name: str = Field(..., max_length=200)
+    brand: str | None = Field(None, max_length=100)
+    price_try: float | None = Field(None, ge=0, description="TRY fiyat")
+    best_seller: str = Field(..., max_length=100)
+    
+    why_chosen: str = Field(
+        ...,
+        max_length=1500,
+        description="Neden bu ürün seçildi (3-5 madde gerekçe)",
+    )
+    
+    strengths: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Bu ürünün güçlü yönleri (özet)",
+    )
+    
+    considerations: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Bilinmesi gereken durumlar",
+    )
+
+
+class StrategyAlternative(BaseModel):
+    """Alternatif ürün önerisi."""
+
+    name: str = Field(..., max_length=200)
+    brand: str | None = Field(None, max_length=100)
+    price_try: float | None = Field(None, ge=0, description="TRY fiyat (bilinmiyorsa None)")
+    
+    tier: str = Field(
+        ...,
+        description="budget | similar | premium",
+        max_length=20,
+    )
+    
+    one_line_reason: str = Field(
+        ...,
+        max_length=300,
+        description="Tek cümlelik neden",
+    )
+    
+    trade_off: str = Field(
+        ...,
+        max_length=500,
+        description="Ne kazanırsın, ne kaybedersin",
+    )
+
+
+class StrategyActionStep(BaseModel):
+    """Eylem planı adımı."""
+
+    order: int = Field(..., ge=1, le=10)
+    action: str = Field(..., max_length=300)
+    why: str = Field(..., max_length=500, description="Bu adımın gerekçesi")
+    priority: str = Field(
+        "normal",
+        description="critical | important | normal",
+        max_length=20,
+    )
+
+
+class StrategyOutput(BaseModel):
+    """StrategyAgent çıktısı — final sentez."""
+
+    # Persona detection
+    persona_detected: str = Field(
+        ...,
+        description="budget_conscious | quality_seeker | tech_enthusiast | family_user | general",
+        max_length=50,
+    )
+    persona_reasoning: str = Field(
+        ...,
+        max_length=500,
+        description="Bu persona neden tespit edildi",
+    )
+
+    # Ana tavsiye
+    recommended_product: StrategyRecommendedProduct = Field(
+        ...,
+        description="Kullanıcı için en uygun ürün",
+    )
+
+    # Alternatifler
+    alternatives: list[StrategyAlternative] = Field(
+        default_factory=list,
+        max_length=3,
+        description="1-3 alternatif (ucuz, benzer, premium)",
+    )
+
+    # Eylem planı
+    action_plan: list[StrategyActionStep] = Field(
+        default_factory=list,
+        max_length=7,
+        description="3-7 adımlık eylem planı",
+    )
+
+    # Dikkat edilecekler
+    warnings: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Önemli uyarılar (Finance + TCO uyarılarından sentez)",
+    )
+
+    # Final mesaj
+    final_message: str = Field(
+        ...,
+        max_length=3000,
+        description="Türkçe empatik sonuç mesajı (3-5 paragraf)",
+    )
+
+    # Karar matrisi (özet karşılaştırma)
+    decision_matrix_summary: str = Field(
+        ...,
+        max_length=1000,
+        description="Top 3 ürün için kısa karşılaştırma metni",
+    )
+
+    confidence: float = Field(..., ge=0.0, le=1.0)
