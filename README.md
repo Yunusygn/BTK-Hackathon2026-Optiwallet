@@ -446,7 +446,7 @@ docker-compose up -d
 
 ```
 📧 Email:  demo@optiwallet.com
-🔑 Şifre:  Demo1234!
+🔑 Şifre:  Demo1234
 ```
 
 > 💡 Login olmadan da kullanabilirsin — anonim mod tam pipeline destekli, sadece kişisel finance yok.
