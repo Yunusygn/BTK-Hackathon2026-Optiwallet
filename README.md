@@ -442,11 +442,7 @@ docker-compose up -d
 | **Backend API** | http://localhost:8000/docs | Swagger UI (auto-docs) |
 | **Health Check** | http://localhost:8000/health | Servis durumu |
 
-### 🔐 Demo Kullanıcı
 
-```
-📧 Email:  demo@optiwallet.com
-🔑 Şifre:  Demo1234
 ```
 
 > 💡 Login olmadan da kullanabilirsin — anonim mod tam pipeline destekli, sadece kişisel finance yok.
